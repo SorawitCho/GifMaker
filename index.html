@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Combine your photos into an animated GIF, entirely on your device.">
+<meta name="theme-color" content="#F2F2F7">
+<title>GifMaker</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="nav-bar">
+    <h1>GifMaker</h1>
+  </header>
+
+  <main id="main-section">
+    <div id="empty-state" class="empty-state">
+      <p class="empty-title">No photos selected</p>
+      <p class="empty-subtitle">Choose at least 2 photos to build a GIF</p>
+      <label class="btn btn-primary" for="file-input">Choose Photos</label>
+    </div>
+
+    <div id="grid" class="grid" hidden></div>
+
+    <div id="add-more-row" class="add-more-row" hidden>
+      <label class="btn btn-secondary" for="file-input">Add More Photos</label>
+    </div>
+
+    <input type="file" id="file-input" accept="image/*" multiple hidden>
+
+    <div id="controls" class="controls" hidden>
+      <label class="speed-label" for="speed-slider" id="speed-label">Speed — 200ms/frame (~5.0 fps)</label>
+      <input type="range" id="speed-slider" min="50" max="1000" step="10" value="200">
+    </div>
+
+    <button type="button" id="create-btn" class="btn btn-primary btn-block" hidden disabled>Create GIF</button>
+  </main>
+
+  <section id="preview-section" class="preview-section" hidden>
+    <h2 class="preview-title">Preview</h2>
+    <img id="preview-img" class="preview-img" alt="Generated GIF preview">
+    <p id="save-hint" class="save-hint" hidden>Press and hold the image above, then tap &ldquo;Add to Photos&rdquo;.</p>
+    <button type="button" id="save-btn" class="btn btn-primary btn-block">Save</button>
+    <a id="download-link" class="btn btn-secondary btn-block" hidden download="gifmaker.gif">Download</a>
+    <button type="button" id="back-btn" class="btn btn-secondary btn-block">Back</button>
+  </section>
+
+  <div id="overlay" class="overlay" hidden>
+    <div class="overlay-card">
+      <div class="spinner"></div>
+      <p>Creating your GIF…</p>
+    </div>
+  </div>
+
+  <script src="js/vendor/gif.js"></script>
+  <script src="js/vendor/sortable.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
