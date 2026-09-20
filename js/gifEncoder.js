@@ -43,36 +43,30 @@ function dims(img) {
   return { width: img.width, height: img.height };
 }
 
-// Draws `img` into `ctx` as a "cover" fit: center-cropped to the target
-// aspect ratio, then scaled to fill it exactly. Every frame in a GIF must
-// share the same canvas size, so every frame — including the first — goes
-// through this, avoiding stretching for mixed-aspect-ratio photos.
-function drawCoverFit(ctx, img, targetWidth, targetHeight) {
+// Draws `img` into `ctx` as a "contain" fit: the full photo, uncropped and
+// undistorted, at its native size (never upscaled), centered on the canvas
+// with solid-color padding if it's smaller than the shared canvas. Every
+// frame in a GIF must share one canvas size, so when photos differ in size
+// this is the least-invasive way to reconcile that — nothing is ever cropped
+// out and nothing is ever scaled up.
+function drawContainFit(ctx, img, targetWidth, targetHeight) {
   const { width: srcWidth, height: srcHeight } = dims(img);
-  const targetAspect = targetWidth / targetHeight;
-  const srcAspect = srcWidth / srcHeight;
+  const scale = Math.min(targetWidth / srcWidth, targetHeight / srcHeight, 1);
+  const dw = Math.round(srcWidth * scale);
+  const dh = Math.round(srcHeight * scale);
+  const dx = Math.round((targetWidth - dw) / 2);
+  const dy = Math.round((targetHeight - dh) / 2);
 
-  let sx = 0;
-  let sy = 0;
-  let sw = srcWidth;
-  let sh = srcHeight;
-
-  if (srcAspect > targetAspect) {
-    sw = Math.round(srcHeight * targetAspect);
-    sx = Math.round((srcWidth - sw) / 2);
-  } else if (srcAspect < targetAspect) {
-    sh = Math.round(srcWidth / targetAspect);
-    sy = Math.round((srcHeight - sh) / 2);
-  }
-
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(img, 0, 0, srcWidth, srcHeight, dx, dy, dw, dh);
 }
 
 /**
  * @param {{files: File[], frameDelayMs: number, maxDimension?: number}} options
  * @returns {Promise<Blob>} the encoded GIF
  */
-export async function encodeGif({ files, frameDelayMs, maxDimension = 720 }) {
+export async function encodeGif({ files, frameDelayMs, maxDimension = 1200 }) {
   if (!files || files.length < 2) {
     throw new Error('At least 2 photos are required to build a GIF.');
   }
@@ -82,17 +76,23 @@ export async function encodeGif({ files, frameDelayMs, maxDimension = 720 }) {
     images.push(await loadImage(file));
   }
 
-  // The target canvas size is based on the LARGEST selected photo, not just
-  // the first one — otherwise a small photo picked first would needlessly
-  // crush the quality of bigger photos later in the sequence. Framing
-  // (aspect ratio) still comes from the first photo, since every frame has
-  // to be cropped to one consistent shape.
-  const largestLongEdge = Math.max(...images.map((img) => Math.max(dims(img).width, dims(img).height)));
-  const targetLongEdge = Math.min(largestLongEdge, maxDimension);
-  const first = dims(images[0]);
-  const aspect = first.width / first.height;
-  const targetWidth = aspect >= 1 ? targetLongEdge : Math.max(1, Math.round(targetLongEdge * aspect));
-  const targetHeight = aspect >= 1 ? Math.max(1, Math.round(targetLongEdge / aspect)) : targetLongEdge;
+  // The shared canvas is sized to whichever selected photo has the largest
+  // area, at that photo's own native resolution and aspect ratio — only
+  // downscaled (preserving aspect ratio) if it exceeds maxDimension, a
+  // safety cap so a full-resolution multi-frame GIF can't exhaust a phone
+  // browser's memory or balloon into an unshareable file size. If every
+  // photo is already the same size and under that cap, this results in zero
+  // resizing at all.
+  const largest = images.reduce((a, b) => {
+    const areaA = dims(a).width * dims(a).height;
+    const areaB = dims(b).width * dims(b).height;
+    return areaB > areaA ? b : a;
+  });
+  const { width: refWidth, height: refHeight } = dims(largest);
+  const refLongEdge = Math.max(refWidth, refHeight);
+  const scale = refLongEdge > maxDimension ? maxDimension / refLongEdge : 1;
+  const targetWidth = Math.max(1, Math.round(refWidth * scale));
+  const targetHeight = Math.max(1, Math.round(refHeight * scale));
 
   const canvas = document.createElement('canvas');
   canvas.width = targetWidth;
@@ -102,7 +102,7 @@ export async function encodeGif({ files, frameDelayMs, maxDimension = 720 }) {
   return new Promise((resolve, reject) => {
     const gif = new window.GIF({
       workers: 2,
-      quality: 5,
+      quality: 1,
       width: targetWidth,
       height: targetHeight,
       workerScript: 'js/vendor/gif.worker.js',
@@ -113,8 +113,7 @@ export async function encodeGif({ files, frameDelayMs, maxDimension = 720 }) {
 
     try {
       for (const img of images) {
-        ctx.clearRect(0, 0, targetWidth, targetHeight);
-        drawCoverFit(ctx, img, targetWidth, targetHeight);
+        drawContainFit(ctx, img, targetWidth, targetHeight);
         gif.addFrame(ctx, { copy: true, delay: frameDelayMs });
       }
       gif.render();
