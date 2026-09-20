@@ -46,7 +46,7 @@ function drawCoverFit(ctx, img, targetWidth, targetHeight) {
  * @param {{files: File[], frameDelayMs: number, maxDimension?: number}} options
  * @returns {Promise<Blob>} the encoded GIF
  */
-export async function encodeGif({ files, frameDelayMs, maxDimension = 480 }) {
+export async function encodeGif({ files, frameDelayMs, maxDimension = 720 }) {
   if (!files || files.length < 2) {
     throw new Error('At least 2 photos are required to build a GIF.');
   }
@@ -56,11 +56,17 @@ export async function encodeGif({ files, frameDelayMs, maxDimension = 480 }) {
     images.push(await loadImage(file));
   }
 
+  // The target canvas size is based on the LARGEST selected photo, not just
+  // the first one — otherwise a small photo picked first would needlessly
+  // crush the quality of bigger photos later in the sequence. Framing
+  // (aspect ratio) still comes from the first photo, since every frame has
+  // to be cropped to one consistent shape.
+  const largestLongEdge = Math.max(...images.map((img) => Math.max(img.naturalWidth, img.naturalHeight)));
+  const targetLongEdge = Math.min(largestLongEdge, maxDimension);
   const first = images[0];
-  const longEdge = Math.max(first.naturalWidth, first.naturalHeight);
-  const scale = longEdge > maxDimension ? maxDimension / longEdge : 1;
-  const targetWidth = Math.max(1, Math.round(first.naturalWidth * scale));
-  const targetHeight = Math.max(1, Math.round(first.naturalHeight * scale));
+  const aspect = first.naturalWidth / first.naturalHeight;
+  const targetWidth = aspect >= 1 ? targetLongEdge : Math.max(1, Math.round(targetLongEdge * aspect));
+  const targetHeight = aspect >= 1 ? Math.max(1, Math.round(targetLongEdge / aspect)) : targetLongEdge;
 
   const canvas = document.createElement('canvas');
   canvas.width = targetWidth;
@@ -70,7 +76,7 @@ export async function encodeGif({ files, frameDelayMs, maxDimension = 480 }) {
   return new Promise((resolve, reject) => {
     const gif = new window.GIF({
       workers: 2,
-      quality: 10,
+      quality: 5,
       width: targetWidth,
       height: targetHeight,
       workerScript: 'js/vendor/gif.worker.js',
