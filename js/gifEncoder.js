@@ -2,7 +2,23 @@
 // animated GIF Blob. No DOM state beyond a throwaway canvas — safe to reason
 // about and test in isolation from app.js's UI wiring.
 
-function loadImage(file) {
+// Prefer createImageBitmap with an explicit sRGB colorSpaceConversion: it has
+// more consistent, spec-defined color-space handling than the <img> + canvas
+// path, which is what mis-renders some camera JPEGs (e.g. ones shot in
+// AdobeRGB) as washed-out — the AdobeRGB pixel values get drawn as if they
+// were already sRGB. Falls back to <img> if createImageBitmap is unavailable.
+async function loadImage(file) {
+  if (window.createImageBitmap) {
+    try {
+      return await createImageBitmap(file, { colorSpaceConversion: 'default' });
+    } catch (_err) {
+      // fall through to the <img> fallback below
+    }
+  }
+  return loadImageElement(file);
+}
+
+function loadImageElement(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -18,25 +34,35 @@ function loadImage(file) {
   });
 }
 
+// Normalizes intrinsic size across HTMLImageElement (naturalWidth/Height)
+// and ImageBitmap (width/height).
+function dims(img) {
+  if (typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement) {
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  }
+  return { width: img.width, height: img.height };
+}
+
 // Draws `img` into `ctx` as a "cover" fit: center-cropped to the target
 // aspect ratio, then scaled to fill it exactly. Every frame in a GIF must
 // share the same canvas size, so every frame — including the first — goes
 // through this, avoiding stretching for mixed-aspect-ratio photos.
 function drawCoverFit(ctx, img, targetWidth, targetHeight) {
+  const { width: srcWidth, height: srcHeight } = dims(img);
   const targetAspect = targetWidth / targetHeight;
-  const srcAspect = img.naturalWidth / img.naturalHeight;
+  const srcAspect = srcWidth / srcHeight;
 
   let sx = 0;
   let sy = 0;
-  let sw = img.naturalWidth;
-  let sh = img.naturalHeight;
+  let sw = srcWidth;
+  let sh = srcHeight;
 
   if (srcAspect > targetAspect) {
-    sw = Math.round(img.naturalHeight * targetAspect);
-    sx = Math.round((img.naturalWidth - sw) / 2);
+    sw = Math.round(srcHeight * targetAspect);
+    sx = Math.round((srcWidth - sw) / 2);
   } else if (srcAspect < targetAspect) {
-    sh = Math.round(img.naturalWidth / targetAspect);
-    sy = Math.round((img.naturalHeight - sh) / 2);
+    sh = Math.round(srcWidth / targetAspect);
+    sy = Math.round((srcHeight - sh) / 2);
   }
 
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
@@ -61,10 +87,10 @@ export async function encodeGif({ files, frameDelayMs, maxDimension = 720 }) {
   // crush the quality of bigger photos later in the sequence. Framing
   // (aspect ratio) still comes from the first photo, since every frame has
   // to be cropped to one consistent shape.
-  const largestLongEdge = Math.max(...images.map((img) => Math.max(img.naturalWidth, img.naturalHeight)));
+  const largestLongEdge = Math.max(...images.map((img) => Math.max(dims(img).width, dims(img).height)));
   const targetLongEdge = Math.min(largestLongEdge, maxDimension);
-  const first = images[0];
-  const aspect = first.naturalWidth / first.naturalHeight;
+  const first = dims(images[0]);
+  const aspect = first.width / first.height;
   const targetWidth = aspect >= 1 ? targetLongEdge : Math.max(1, Math.round(targetLongEdge * aspect));
   const targetHeight = aspect >= 1 ? Math.max(1, Math.round(targetLongEdge / aspect)) : targetLongEdge;
 
